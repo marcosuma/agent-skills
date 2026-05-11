@@ -80,7 +80,7 @@ Store as `USER_PROJECT_ID`.
 ### Q2 — Cluster Name
 
 Ask: "What is the name of your existing Atlas cluster?"
-If MCP is connected: call `mcp__MongoDB__atlas-list-clusters` with the project ID.
+If MCP is connected: call `mcp__MongoDB__atlas-list-clusters` with the project ID and present the list.
 Store as `USER_CLUSTER_NAME`.
 
 ### Q3 — Region and Location
@@ -123,11 +123,11 @@ Ask: "Do you have an existing Azure Storage Account for Atlas backup export, or 
 
 ## Step 3: Generate the 5 Files
 
+Substitute all USER_* placeholders with collected answers before rendering.
+
 For `terraform.tfvars.example`, activate only the networking block matching the user's Q5 choice
 and delete the other networking block entirely. Do the same for Key Vault (Q6) and Storage Account
 (Q7) blocks — keep only the block matching the user's choice, delete the other.
-
-Substitute all USER_* placeholders with collected answers before rendering.
 
 ---
 
@@ -286,15 +286,30 @@ module "atlas_azure" {
   privatelink_endpoints = [
     {
       region    = var.atlas_region
-      subnet_id = SUBNET_ID_VALUE
+      # NETWORKING = create: use azurerm_subnet.atlas.id instead
+      subnet_id = var.subnet_id
     }
   ]
 
-  encryption = ENCRYPTION_VALUE
+  # KMS = byo: use the block below
+  # KMS = create: replace with: { enabled = true, create_key_vault = { enabled = true, name = var.key_vault_name, resource_group_name = var.resource_group_name, azure_location = var.azure_location } }
+  encryption = {
+    enabled        = true
+    key_vault_id   = var.key_vault_id
+    key_identifier = var.key_identifier
+  }
 
-  backup_export = BACKUP_EXPORT_VALUE
+  # BLOB = byo: use the block below
+  # BLOB = create: replace with: { enabled = true, container_name = var.backup_container_name, create_storage_account = { enabled = true, name = var.storage_account_name, resource_group_name = var.resource_group_name, azure_location = var.azure_location } }
+  backup_export = {
+    enabled            = true
+    container_name     = var.backup_container_name
+    storage_account_id = var.storage_account_id
+  }
 }
 ```
+
+> **Note on `atlas_azure_app_id`:** The default value `9f2deb0d-be22-4524-a403-df531868bac0` is MongoDB's registered Azure AD application ID — do not set it manually unless your organization uses a custom registration.
 
 **Combination rules:**
 
@@ -414,16 +429,34 @@ Replace USER_* placeholders with actual values from Q1–Q7. Pre-populate known 
 
 Before presenting files, validate the HCL:
 
+**4.1** Create a temporary directory:
+
 ```bash
 mkdir -p /tmp/atlas-tf-validate-tmp
-# Write versions.tf, variables.tf, main.tf, outputs.tf (not terraform.tfvars.example — not valid HCL).
+```
+
+**4.2** Write `versions.tf`, `variables.tf`, `main.tf`, and `outputs.tf` into `/tmp/atlas-tf-validate-tmp/`. Do not write `terraform.tfvars.example` — it is not valid HCL for validation.
+
+**4.3** Initialise Terraform:
+
+```bash
 terraform -chdir=/tmp/atlas-tf-validate-tmp init -backend=false -no-color
+```
+
+**4.4** Validate the configuration:
+
+```bash
 terraform -chdir=/tmp/atlas-tf-validate-tmp validate -no-color
-rm -rf /tmp/atlas-tf-validate-tmp
 ```
 
 If output contains `Success! The configuration is valid.` → proceed to Step 5.
 If validation fails → fix the error and re-validate. After two failed attempts, present files with a note that HCL validation could not be completed.
+
+**Always clean up:**
+
+```bash
+rm -rf /tmp/atlas-tf-validate-tmp
+```
 
 ---
 
@@ -434,7 +467,10 @@ After presenting all 5 files, always append:
 ```
 ## Next Steps
 1. Copy terraform.tfvars.example → terraform.tfvars. Add to .gitignore:
-   terraform.tfvars / .terraform/ / *.tfstate / *.tfstate.backup
+     terraform.tfvars
+     .terraform/
+     *.tfstate
+     *.tfstate.backup
 2. az login
 3. terraform init
 4. terraform plan
