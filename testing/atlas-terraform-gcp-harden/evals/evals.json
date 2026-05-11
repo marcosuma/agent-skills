@@ -1,0 +1,62 @@
+{
+  "skill_name": "atlas-terraform-gcp-harden",
+  "evals": [
+    {
+      "id": 1,
+      "name": "byo-subnetwork-create-kms-create-gcs",
+      "prompt": "I have an Atlas cluster 'prod-gcp' in project abc123. Add GCP Private Service Connect, Cloud KMS encryption, and GCS backup export. My existing subnetwork self-link is projects/my-gcp-project/regions/us-central1/subnetworks/atlas-subnet. GCP project is my-gcp-project, region us-central1. Let the module create the KMS key and GCS bucket.",
+      "expected_output": "Generates 5 files. versions.tf has mongodbatlas ~> 2.0 and google ~> 6.0. main.tf uses atlas-gcp module with subnetwork = var.subnetwork_self_link (BYO). encryption uses create_kms_key = { enabled = true }. backup_export uses create_bucket = { enabled = true }. No google_compute_network or subnetwork resources.",
+      "expectations": [
+        "Shows module disclosure for atlas-gcp Landing Zone Module",
+        "versions.tf includes google provider source = 'hashicorp/google' version ~> 6.0",
+        "main.tf uses module source 'terraform-mongodbatlas-modules/atlas-gcp/mongodbatlas' version ~> 0.1",
+        "google provider block has project = var.gcp_project_id and region = var.gcp_region",
+        "privatelink_endpoints uses subnetwork = var.subnetwork_self_link (BYO path)",
+        "cloud_provider_access = {} present (creates GCP service account automatically)",
+        "encryption block uses create_kms_key = { enabled = true }",
+        "backup_export block uses create_bucket = { enabled = true }",
+        "No google_compute_network or google_compute_subnetwork resources",
+        "variables.tf has subnetwork_self_link, gcp_project_id, gcp_region",
+        "Runs terraform validate before presenting files"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "create-networking-create-kms-create-gcs",
+      "prompt": "Harden my Atlas cluster 'staging-gcp' (project: proj333) on GCP. I have no existing GCP networking. Create a new network and subnet with CIDR 10.3.0.0/24. Also create KMS key and GCS bucket. GCP project is staging-project, region us-east1.",
+      "expected_output": "Generates 5 files. main.tf includes google_compute_network and google_compute_subnetwork resources. atlas-gcp module uses subnetwork = google_compute_subnetwork.atlas.self_link.",
+      "expectations": [
+        "main.tf contains resource 'google_compute_network' 'atlas' with auto_create_subnetworks = false",
+        "main.tf contains resource 'google_compute_subnetwork' 'atlas' with ip_cidr_range = var.subnet_cidr and region = var.gcp_region",
+        "module atlas_gcp privatelink_endpoints uses subnetwork = google_compute_subnetwork.atlas.self_link",
+        "variables.tf has subnet_cidr instead of subnetwork_self_link",
+        "outputs.tf includes network_id and subnetwork_self_link from google_compute resources",
+        "create_kms_key = { enabled = true } and create_bucket = { enabled = true } present"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "byo-all-resources",
+      "prompt": "Add GCP hardening to Atlas cluster 'data-warehouse' (project: dw123). My subnetwork is projects/my-proj/regions/us-central1/subnetworks/atlas-net. My KMS key version is projects/my-proj/locations/global/keyRings/atlas-ring/cryptoKeys/atlas-key/cryptoKeyVersions/1. My GCS bucket is my-atlas-backups-bucket.",
+      "expected_output": "Generates 5 files with all BYO paths. encryption uses key_version_resource_id. backup_export uses bucket_name.",
+      "expectations": [
+        "encryption block uses key_version_resource_id = var.kms_key_version_resource_id",
+        "backup_export block uses bucket_name = var.gcs_bucket_name",
+        "No create_kms_key or create_bucket blocks",
+        "variables.tf includes kms_key_version_resource_id and gcs_bucket_name",
+        "terraform.tfvars.example pre-populates kms_key_version_resource_id and gcs_bucket_name"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "out-of-scope-aws",
+      "prompt": "Add AWS PrivateLink and KMS encryption to my Atlas cluster using Terraform.",
+      "expected_output": "Recognizes this is an AWS request and directs user to atlas-terraform-aws-harden.",
+      "expectations": [
+        "Does NOT generate GCP Terraform code",
+        "Explains this skill covers GCP hardening only",
+        "Mentions atlas-terraform-aws-harden as the correct skill"
+      ]
+    }
+  ]
+}

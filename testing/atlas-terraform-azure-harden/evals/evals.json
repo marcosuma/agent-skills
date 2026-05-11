@@ -1,0 +1,63 @@
+{
+  "skill_name": "atlas-terraform-azure-harden",
+  "evals": [
+    {
+      "id": 1,
+      "name": "byo-subnet-create-kv-create-storage",
+      "prompt": "I have an Atlas cluster 'prod' in project abc123. I want to add Azure Private Link, Key Vault encryption, and Blob Storage backup export. My existing subnet is /subscriptions/sub123/resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/atlas-subnet in eastus2. Please create a new Key Vault named 'atlas-kv-prod' and a new storage account 'atlasbackupprod' with container 'backups'. My subscription is sub123 and resource group is my-rg.",
+      "expected_output": "Generates 5 files. versions.tf has mongodbatlas ~> 2.0, azurerm ~> 4.0, azuread ~> 2.0. main.tf uses atlas-azure module with subnet_id = var.subnet_id (BYO networking), create_key_vault with name 'atlas-kv-prod', create_storage_account with name 'atlasbackupprod'. No VNet/subnet resources.",
+      "expectations": [
+        "Shows module disclosure for atlas-azure Landing Zone Module",
+        "versions.tf includes azurerm ~> 4.0 and azuread ~> 2.0 providers",
+        "main.tf has provider 'azurerm' with features {} and provider 'azuread'",
+        "module atlas_azure uses create_service_principal = true",
+        "privatelink_endpoints uses subnet_id = var.subnet_id (singular, not list)",
+        "encryption block uses create_key_vault = { enabled = true, name = 'atlas-kv-prod', resource_group_name = var.resource_group_name, azure_location = var.azure_location }",
+        "backup_export uses create_storage_account = { enabled = true, name = 'atlasbackupprod', resource_group_name = var.resource_group_name, azure_location = var.azure_location }",
+        "backup_export includes container_name = var.backup_container_name",
+        "No azurerm_virtual_network or azurerm_subnet resources (BYO networking)",
+        "variables.tf has subnet_id as string (not list), key_vault_name, storage_account_name, backup_container_name",
+        "Runs terraform validate before presenting files"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "create-networking-create-kv-create-storage",
+      "prompt": "Help me harden my Atlas cluster 'dev' (project: proj999) on Azure. I don't have any Azure networking yet. Create a VNet with address space 10.2.0.0/16 and subnet 10.2.1.0/24. Also create a Key Vault 'atlas-kv-dev' and storage account 'atlasbackupdev'. Resource group is 'dev-rg', location is eastus2, subscription sub456.",
+      "expected_output": "Generates 5 files. main.tf includes azurerm_virtual_network and azurerm_subnet resources. atlas-azure module uses subnet_id = azurerm_subnet.atlas.id.",
+      "expectations": [
+        "main.tf contains resource 'azurerm_virtual_network' 'atlas' with location = var.azure_location and resource_group_name = var.resource_group_name",
+        "main.tf contains resource 'azurerm_subnet' 'atlas' with address_prefixes = [var.subnet_prefix]",
+        "module atlas_azure privatelink_endpoints uses subnet_id = azurerm_subnet.atlas.id",
+        "variables.tf has vnet_address_space and subnet_prefix instead of subnet_id",
+        "outputs.tf includes vnet_id and subnet_id from azurerm resources",
+        "create_service_principal = true present in module",
+        "create_key_vault and create_storage_account blocks present with required name, resource_group_name, azure_location"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "byo-keyvault-byo-storage",
+      "prompt": "Add Azure hardening to my Atlas cluster 'analytics' (project: ppp111). I already have a subnet /subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/subnet, Key Vault ID /subscriptions/s/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/my-vault with key identifier https://my-vault.vault.azure.net/keys/atlas-key/version1, and storage account /subscriptions/s/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/myaccount with container 'atlas-exports'.",
+      "expected_output": "Generates 5 files using all BYO paths. encryption uses key_vault_id + key_identifier. backup_export uses storage_account_id + container_name.",
+      "expectations": [
+        "encryption block uses key_vault_id = var.key_vault_id and key_identifier = var.key_identifier (no create_key_vault)",
+        "backup_export block uses storage_account_id = var.storage_account_id and container_name = var.backup_container_name (no create_storage_account)",
+        "variables.tf includes key_vault_id, key_identifier, storage_account_id, backup_container_name",
+        "variables.tf does NOT include key_vault_name or storage_account_name",
+        "No azurerm_virtual_network or azurerm_subnet resources"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "out-of-scope-gcp",
+      "prompt": "I want to add GCP Private Service Connect and Cloud KMS to my Atlas cluster using Terraform.",
+      "expected_output": "Recognizes this is a GCP request and directs user to atlas-terraform-gcp-harden.",
+      "expectations": [
+        "Does NOT generate Azure Terraform code",
+        "Explains this skill covers Azure hardening only",
+        "Mentions atlas-terraform-gcp-harden as the correct skill"
+      ]
+    }
+  ]
+}
