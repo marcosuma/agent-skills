@@ -51,11 +51,14 @@ Each skill always generates configuration for **all** features bundled in the re
 
 | Feature | AWS | Azure | GCP |
 |---|---|---|---|
+| Cloud networking (optional) | VPC + subnets | Resource Group + VNet + subnet | VPC network + subnetwork |
 | Private connectivity | PrivateLink (VPC endpoint) | Azure Private Endpoint | Private Service Connect |
 | Encryption at rest | AWS KMS | Azure Key Vault | GCP Cloud KMS |
 | Cloud provider access | IAM role | Service principal | Service account |
 | Backup export | S3 bucket | Azure Blob (storage account + container) | GCS bucket |
 | Log export (optional) | S3 (same or separate bucket) | Azure Blob | GCS |
+
+For cloud networking: the skill asks whether the user has an existing VPC/subnet. If not, it generates Terraform resources to create one using the native cloud provider (`hashicorp/aws`, `hashicorp/azurerm`, `hashicorp/google`). This is controlled by `create_vpc` / `create_vnet` / `create_network` boolean variables.
 
 For encryption, backup, and log export, the skill supports two modes:
 - **Module-managed:** module creates the cloud resource (KMS key, bucket, etc.)
@@ -100,12 +103,35 @@ Constraint: `>= 0.1, < 1.0` (all three modules are Public Preview v0)
 
 - If MCP connected: call `mcp__MongoDB__atlas-list-projects` and present the list to pick from.
 
-**Q2 — PrivateLink region(s) and networking**
-> "Which region(s) do you want to enable private connectivity in? For each region I need: [AWS: Atlas region name (e.g. `US_EAST_1`) + VPC subnet IDs / Azure: Atlas region name + subnet resource ID / GCP: Atlas region name + subnetwork self-link]"
-
-Multiple regions are supported — collect all before proceeding.
+**Q2 — PrivateLink region and networking**
+> "Which region do you want to enable private connectivity in?"
 
 - If MCP connected: call `mcp__MongoDB__atlas-list-clusters` to surface regions where the existing cluster runs as suggestions.
+
+**Q2a — Existing network or create one?**
+> "Do you have an existing [VPC (AWS) / Virtual Network (Azure) / VPC network (GCP)] in that region, or should I generate Terraform to create one?"
+
+**If BYO (existing network):**
+- AWS: "What are your subnet IDs?" (list; must be in the same region)
+- Azure: "What is your subnet resource ID?" (full ARM resource ID)
+- GCP: "What is your subnetwork self-link?" (full `projects/.../subnetworks/...` URL)
+
+**If creating a new network** (user has no existing VPC/VNet):
+
+AWS — collect:
+- VPC CIDR (default `10.0.0.0/16`)
+- Availability zones to create subnets in (default: first 2 AZs in the chosen region, e.g. `us-east-1a`, `us-east-1b`)
+
+Azure — collect:
+- Resource group name (to create or reuse)
+- Azure location (e.g. `eastus2`) — must match the Atlas region
+- VNet address space (default `10.0.0.0/16`)
+- Subnet prefix (default `10.0.1.0/24`)
+
+GCP — collect:
+- GCP project ID (the GCP project, not the Atlas project)
+- GCP region (e.g. `us-central1`) — must match the Atlas region
+- Subnet CIDR (default `10.0.0.0/24`)
 
 **Q3 — Encryption at rest**
 > "For encryption at rest, should I create a new [AWS KMS key / Azure Key Vault key / GCP Cloud KMS key], or do you have an existing one?"
@@ -204,20 +230,45 @@ variable "project_id" {
 
 **AWS-specific:**
 ```hcl
-variable "privatelink_endpoints" {
-  description = "List of regions and subnets for PrivateLink endpoints."
-  type = list(object({
-    region     = string
-    subnet_ids = list(string)
-  }))
+variable "atlas_region" {
+  description = "Atlas region name, e.g. US_EAST_1. Must match the AWS region where the VPC lives."
+  type        = string
 }
 
+# Networking — BYO path
+variable "subnet_ids" {
+  description = "Existing AWS subnet IDs for PrivateLink. Leave null when create_vpc = true."
+  type        = list(string)
+  default     = null
+}
+
+# Networking — create path (ignored when subnet_ids is set)
+variable "create_vpc" {
+  description = "Set to true to create a new VPC and subnets. Set to false when providing subnet_ids."
+  type        = bool
+  default     = false
+}
+
+variable "vpc_cidr" {
+  description = "CIDR block for the new VPC. Only used when create_vpc = true."
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
+variable "availability_zones" {
+  description = "Availability zones to create subnets in. Only used when create_vpc = true."
+  type        = list(string)
+  default     = ["us-east-1a", "us-east-1b"]
+}
+
+# Encryption at rest
 variable "kms_key_arn" {
-  description = "Existing AWS KMS key ARN for encryption at rest. Leave null to let the module create one."
+  description = "Existing AWS KMS key ARN. Leave null to let the module create one."
   type        = string
   default     = null
 }
 
+# Backup export
 variable "s3_bucket_name" {
   description = "Existing S3 bucket name for backup export. Leave null to let the module create one."
   type        = string
@@ -227,13 +278,49 @@ variable "s3_bucket_name" {
 
 **Azure-specific:**
 ```hcl
-variable "privatelink_endpoints" {
-  type = list(object({
-    region    = string
-    subnet_id = string
-  }))
+variable "atlas_region" {
+  description = "Atlas region name, e.g. US_EAST_2."
+  type        = string
 }
 
+variable "azure_location" {
+  description = "Azure location, e.g. eastus2. Must correspond to the Atlas region."
+  type        = string
+}
+
+# Networking — BYO path
+variable "subnet_id" {
+  description = "Existing Azure subnet resource ID for Private Endpoint. Leave null when create_vnet = true."
+  type        = string
+  default     = null
+}
+
+# Networking — create path
+variable "create_vnet" {
+  description = "Set to true to create a new Resource Group, VNet, and subnet."
+  type        = bool
+  default     = false
+}
+
+variable "resource_group_name" {
+  description = "Name for the new resource group. Only used when create_vnet = true."
+  type        = string
+  default     = "atlas-harden-rg"
+}
+
+variable "vnet_address_space" {
+  description = "Address space for the new VNet. Only used when create_vnet = true."
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
+variable "subnet_address_prefix" {
+  description = "Address prefix for the new subnet. Only used when create_vnet = true."
+  type        = string
+  default     = "10.0.1.0/24"
+}
+
+# Encryption at rest
 variable "key_vault_id" {
   description = "Existing Azure Key Vault resource ID. Leave null to let the module create one."
   type        = string
@@ -246,6 +333,7 @@ variable "key_identifier" {
   default     = null
 }
 
+# Backup export
 variable "storage_account_id" {
   description = "Existing Azure storage account resource ID for backup. Leave null to let the module create one."
   type        = string
@@ -261,19 +349,49 @@ variable "backup_container_name" {
 
 **GCP-specific:**
 ```hcl
-variable "privatelink_endpoints" {
-  type = list(object({
-    region     = string
-    subnetwork = string
-  }))
+variable "atlas_region" {
+  description = "Atlas region name, e.g. CENTRAL_US."
+  type        = string
 }
 
+variable "gcp_region" {
+  description = "GCP region, e.g. us-central1. Must correspond to the Atlas region."
+  type        = string
+}
+
+variable "gcp_project_id" {
+  description = "GCP project ID where network resources will be created."
+  type        = string
+}
+
+# Networking — BYO path
+variable "subnetwork" {
+  description = "Existing subnetwork self-link for Private Service Connect. Leave null when create_network = true."
+  type        = string
+  default     = null
+}
+
+# Networking — create path
+variable "create_network" {
+  description = "Set to true to create a new VPC network and subnetwork."
+  type        = bool
+  default     = false
+}
+
+variable "subnet_cidr" {
+  description = "CIDR range for the new subnetwork. Only used when create_network = true."
+  type        = string
+  default     = "10.0.0.0/24"
+}
+
+# Encryption at rest
 variable "kms_key_version_resource_id" {
   description = "Existing GCP KMS key version resource ID. Leave null to let the module create one."
   type        = string
   default     = null
 }
 
+# Backup export
 variable "gcs_bucket_name" {
   description = "Existing GCS bucket name for backup export. Leave null to let the module create one."
   type        = string
@@ -290,7 +408,27 @@ provider "mongodbatlas" {
   client_secret = var.atlas_client_secret
 }
 
-provider "aws" {}  # region set via AWS_DEFAULT_REGION env var or provider default
+provider "aws" {}  # region set via AWS_DEFAULT_REGION env var or aws configure
+
+# ── Networking (only when create_vpc = true) ──────────────────────────────────
+resource "aws_vpc" "atlas" {
+  count                = var.create_vpc ? 1 : 0
+  cidr_block           = var.vpc_cidr
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+}
+
+resource "aws_subnet" "atlas" {
+  count             = var.create_vpc ? length(var.availability_zones) : 0
+  vpc_id            = aws_vpc.atlas[0].id
+  cidr_block        = cidrsubnet(var.vpc_cidr, 8, count.index)
+  availability_zone = var.availability_zones[count.index]
+}
+
+locals {
+  subnet_ids = var.create_vpc ? aws_subnet.atlas[*].id : var.subnet_ids
+}
+# ─────────────────────────────────────────────────────────────────────────────
 
 module "atlas_aws" {
   source  = "terraform-mongodbatlas-modules/atlas-aws/mongodbatlas"
@@ -316,7 +454,12 @@ module "atlas_aws" {
     }
   }
 
-  privatelink_endpoints = var.privatelink_endpoints
+  privatelink_endpoints = [
+    {
+      region     = var.atlas_region
+      subnet_ids = local.subnet_ids
+    }
+  ]
 }
 ```
 
@@ -341,6 +484,34 @@ provider "azurerm" {
   features {}
 }
 
+# ── Networking (only when create_vnet = true) ─────────────────────────────────
+resource "azurerm_resource_group" "atlas" {
+  count    = var.create_vnet ? 1 : 0
+  name     = var.resource_group_name
+  location = var.azure_location
+}
+
+resource "azurerm_virtual_network" "atlas" {
+  count               = var.create_vnet ? 1 : 0
+  name                = "atlas-vnet"
+  address_space       = [var.vnet_address_space]
+  location            = azurerm_resource_group.atlas[0].location
+  resource_group_name = azurerm_resource_group.atlas[0].name
+}
+
+resource "azurerm_subnet" "atlas" {
+  count                = var.create_vnet ? 1 : 0
+  name                 = "atlas-subnet"
+  resource_group_name  = azurerm_resource_group.atlas[0].name
+  virtual_network_name = azurerm_virtual_network.atlas[0].name
+  address_prefixes     = [var.subnet_address_prefix]
+}
+
+locals {
+  subnet_id = var.create_vnet ? azurerm_subnet.atlas[0].id : var.subnet_id
+}
+# ─────────────────────────────────────────────────────────────────────────────
+
 module "atlas_azure" {
   source  = "terraform-mongodbatlas-modules/atlas-azure/mongodbatlas"
   version = ">= 0.1, < 1.0"
@@ -359,15 +530,20 @@ module "atlas_azure" {
   }
 
   backup_export = {
-    enabled               = true
-    storage_account_id    = var.storage_account_id
-    container_name        = var.backup_container_name
+    enabled                = true
+    storage_account_id     = var.storage_account_id
+    container_name         = var.backup_container_name
     create_storage_account = {
       enabled = var.storage_account_id == null
     }
   }
 
-  privatelink_endpoints = var.privatelink_endpoints
+  privatelink_endpoints = [
+    {
+      region    = var.atlas_region
+      subnet_id = local.subnet_id
+    }
+  ]
 }
 ```
 
@@ -378,7 +554,30 @@ provider "mongodbatlas" {
   client_secret = var.atlas_client_secret
 }
 
-provider "google" {}
+provider "google" {
+  project = var.gcp_project_id
+  region  = var.gcp_region
+}
+
+# ── Networking (only when create_network = true) ──────────────────────────────
+resource "google_compute_network" "atlas" {
+  count                   = var.create_network ? 1 : 0
+  name                    = "atlas-network"
+  auto_create_subnetworks = false
+}
+
+resource "google_compute_subnetwork" "atlas" {
+  count         = var.create_network ? 1 : 0
+  name          = "atlas-subnet"
+  network       = google_compute_network.atlas[0].id
+  ip_cidr_range = var.subnet_cidr
+  region        = var.gcp_region
+}
+
+locals {
+  subnetwork = var.create_network ? google_compute_subnetwork.atlas[0].self_link : var.subnetwork
+}
+# ─────────────────────────────────────────────────────────────────────────────
 
 module "atlas_gcp" {
   source  = "terraform-mongodbatlas-modules/atlas-gcp/mongodbatlas"
@@ -404,7 +603,12 @@ module "atlas_gcp" {
     }
   }
 
-  privatelink_endpoints = var.privatelink_endpoints
+  privatelink_endpoints = [
+    {
+      region     = var.atlas_region
+      subnetwork = local.subnetwork
+    }
+  ]
 }
 ```
 
@@ -428,9 +632,20 @@ output "cloud_provider_access_role_id" {
   description = "Atlas Cloud Provider Access IAM role ID."
   value       = module.atlas_aws.role_id
 }
+
+# Networking outputs — only populated when create_vpc = true
+output "vpc_id" {
+  description = "ID of the created VPC (null if BYO)."
+  value       = var.create_vpc ? aws_vpc.atlas[0].id : null
+}
+
+output "subnet_ids" {
+  description = "IDs of the created subnets (null if BYO)."
+  value       = var.create_vpc ? aws_subnet.atlas[*].id : null
+}
 ```
 
-**Azure** (same structure, adapt names to `module.atlas_azure.*`):
+**Azure:**
 ```hcl
 output "privatelink_endpoints" {
   description = "Azure Private Endpoint details."
@@ -445,9 +660,20 @@ output "service_principal_id" {
   description = "Azure AD service principal ID."
   value       = module.atlas_azure.service_principal_id
 }
+
+# Networking outputs — only populated when create_vnet = true
+output "vnet_id" {
+  description = "ID of the created VNet (null if BYO)."
+  value       = var.create_vnet ? azurerm_virtual_network.atlas[0].id : null
+}
+
+output "subnet_id" {
+  description = "ID of the created subnet (null if BYO)."
+  value       = var.create_vnet ? azurerm_subnet.atlas[0].id : null
+}
 ```
 
-**GCP** (same structure, adapt names to `module.atlas_gcp.*`):
+**GCP:**
 ```hcl
 output "privatelink_endpoints" {
   description = "Private Service Connect endpoint details."
@@ -462,26 +688,36 @@ output "service_account_email" {
   description = "GCP service account email for Cloud Provider Access."
   value       = module.atlas_gcp.service_account_email
 }
+
+# Networking outputs — only populated when create_network = true
+output "network_self_link" {
+  description = "Self-link of the created VPC network (null if BYO)."
+  value       = var.create_network ? google_compute_network.atlas[0].self_link : null
+}
+
+output "subnetwork_self_link" {
+  description = "Self-link of the created subnetwork (null if BYO)."
+  value       = var.create_network ? google_compute_subnetwork.atlas[0].self_link : null
+}
 ```
 
 ### `terraform.tfvars.example`
 
-**AWS:**
+The skill generates the example file in the correct path for the user's chosen path (BYO network or create network). Both variants are shown here.
+
+**AWS — BYO subnet:**
 ```hcl
 # Copy to terraform.tfvars — NEVER commit this file.
 
 atlas_client_id     = "<replace-me>"  # Atlas UI → Access Manager → Service Accounts
 atlas_client_secret = "<replace-me>"
 
-project_id = "<replace-me>"  # Atlas UI → Project Settings → Project ID
+project_id   = "<replace-me>"   # Atlas UI → Project Settings → Project ID
+atlas_region = "US_EAST_1"
 
-# PrivateLink — one object per region
-privatelink_endpoints = [
-  {
-    region     = "US_EAST_1"           # Atlas region format
-    subnet_ids = ["subnet-xxxxxxxx"]   # AWS subnet IDs in that region
-  }
-]
+# Networking — BYO existing subnet
+create_vpc = false
+subnet_ids = ["subnet-xxxxxxxx", "subnet-yyyyyyyy"]
 
 # Encryption at rest (leave commented out to let the module create a key)
 # kms_key_arn = "arn:aws:kms:us-east-1:123456789012:key/xxxxxxxx"
@@ -490,42 +726,86 @@ privatelink_endpoints = [
 # s3_bucket_name = "my-atlas-backup-bucket"
 ```
 
-**Azure:**
+**AWS — create new VPC:**
 ```hcl
 atlas_client_id     = "<replace-me>"
 atlas_client_secret = "<replace-me>"
 
-project_id = "<replace-me>"
+project_id   = "<replace-me>"
+atlas_region = "US_EAST_1"
 
-privatelink_endpoints = [
-  {
-    region    = "US_EAST_2"
-    subnet_id = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/<subnet>"
-  }
-]
+# Networking — create new VPC
+create_vpc         = true
+vpc_cidr           = "10.0.0.0/16"
+availability_zones = ["us-east-1a", "us-east-1b"]
+```
 
-# key_vault_id    = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<vault>"
-# key_identifier  = "https://<vault>.vault.azure.net/keys/<key>/<version>"
-# storage_account_id    = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account>"
+**Azure — BYO subnet:**
+```hcl
+atlas_client_id     = "<replace-me>"
+atlas_client_secret = "<replace-me>"
+
+project_id     = "<replace-me>"
+atlas_region   = "US_EAST_2"
+azure_location = "eastus2"
+
+# Networking — BYO existing subnet
+create_vnet = false
+subnet_id   = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/<subnet>"
+
+# key_vault_id    = "..."
+# key_identifier  = "..."
+# storage_account_id    = "..."
 # backup_container_name = "atlas-backup"
 ```
 
-**GCP:**
+**Azure — create new VNet:**
 ```hcl
 atlas_client_id     = "<replace-me>"
 atlas_client_secret = "<replace-me>"
 
-project_id = "<replace-me>"
+project_id     = "<replace-me>"
+atlas_region   = "US_EAST_2"
+azure_location = "eastus2"
 
-privatelink_endpoints = [
-  {
-    region     = "CENTRAL_US"
-    subnetwork = "projects/<gcp-project>/regions/us-central1/subnetworks/<subnet>"
-  }
-]
+# Networking — create new VNet
+create_vnet           = true
+resource_group_name   = "atlas-harden-rg"
+vnet_address_space    = "10.0.0.0/16"
+subnet_address_prefix = "10.0.1.0/24"
+```
 
-# kms_key_version_resource_id = "projects/<gcp-project>/locations/<region>/keyRings/<ring>/cryptoKeys/<key>/cryptoKeyVersions/1"
+**GCP — BYO subnetwork:**
+```hcl
+atlas_client_id     = "<replace-me>"
+atlas_client_secret = "<replace-me>"
+
+project_id     = "<replace-me>"
+atlas_region   = "CENTRAL_US"
+gcp_region     = "us-central1"
+gcp_project_id = "<gcp-project-id>"
+
+# Networking — BYO existing subnetwork
+create_network = false
+subnetwork     = "projects/<gcp-project>/regions/us-central1/subnetworks/<subnet>"
+
+# kms_key_version_resource_id = "..."
 # gcs_bucket_name = "my-atlas-backup-bucket"
+```
+
+**GCP — create new network:**
+```hcl
+atlas_client_id     = "<replace-me>"
+atlas_client_secret = "<replace-me>"
+
+project_id     = "<replace-me>"
+atlas_region   = "CENTRAL_US"
+gcp_region     = "us-central1"
+gcp_project_id = "<gcp-project-id>"
+
+# Networking — create new VPC network
+create_network = true
+subnet_cidr    = "10.0.0.0/24"
 ```
 
 If MCP is connected, `project_id` is pre-filled with the real value.
@@ -561,12 +841,13 @@ If MCP is connected, `project_id` is pre-filled with the real value.
 
 | What you want | How |
 |---|---|
-| Multiple PrivateLink regions | Add more objects to `privatelink_endpoints` |
+| Use existing VPC/subnet instead of creating one | Set `create_vpc = false` and provide `subnet_ids` |
+| Multiple PrivateLink regions | Add more endpoint objects to `privatelink_endpoints` in `main.tf` |
 | Bring-your-own encryption key | Set `kms_key_arn` / `key_identifier` / `key_version_resource_id` |
-| Bring-your-own backup bucket | Set `s3_bucket_name` / `container_name` / `bucket_name` |
-| Log export to same bucket | Add `log_integration = { enabled = true, ... }` |
+| Bring-your-own backup bucket | Set `s3_bucket_name` / `container_name` / `gcs_bucket_name` |
+| Log export to same bucket | Add `log_integration = { enabled = true, ... }` inside the module block |
 | Bring-your-own IAM role | Set `cloud_provider_access = { create = false, existing = { ... } }` |
-| Search node encryption | Set `enabled_for_search_nodes = true` in `encryption` block |
+| Search node encryption | Set `enabled_for_search_nodes = true` in the `encryption` block |
 
 Full variable reference:
   AWS:   https://registry.terraform.io/modules/terraform-mongodbatlas-modules/atlas-aws/mongodbatlas/latest?tab=inputs
