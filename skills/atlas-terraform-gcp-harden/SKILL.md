@@ -238,20 +238,6 @@ variable "gcs_bucket_name" {
 
 ### File 3: `main.tf`
 
-**Always include providers:**
-
-```hcl
-provider "mongodbatlas" {
-  client_id     = var.atlas_client_id
-  client_secret = var.atlas_client_secret
-}
-
-provider "google" {
-  project = var.gcp_project_id
-  region  = var.gcp_region
-}
-```
-
 ```hcl
 provider "mongodbatlas" {
   client_id     = var.atlas_client_id
