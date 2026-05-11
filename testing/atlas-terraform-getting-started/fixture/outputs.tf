@@ -1,6 +1,6 @@
 output "connection_string" {
   description = "MongoDB SRV connection string."
-  value       = tolist(module.cluster.connection_strings)[0].standard_srv
+  value       = module.cluster.connection_strings.standard_srv
 }
 
 output "project_id" {
