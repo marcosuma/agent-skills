@@ -478,8 +478,8 @@ After presenting all 5 files, always append:
 | Request | Resource |
 |---|---|
 | Creating a new Atlas cluster from scratch | `atlas-terraform-getting-started` skill |
-| Azure PrivateLink, Key Vault, or Blob Storage integration | `atlas-terraform-azure-harden` skill (coming soon) |
-| GCP Private Service Connect or Cloud KMS integration | `atlas-terraform-gcp-harden` skill (coming soon) |
+| Azure PrivateLink, Key Vault, or Blob Storage integration | `atlas-terraform-azure-harden` skill |
+| GCP Private Service Connect or Cloud KMS integration | `atlas-terraform-gcp-harden` skill |
 | Atlas Search / Vector Search index management | Atlas Search Terraform resource docs |
 | Importing existing Terraform state | `terraform import` + provider resource docs |
 | General Terraform errors unrelated to Atlas | HashiCorp Terraform docs |

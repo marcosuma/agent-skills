@@ -508,6 +508,6 @@ After presenting all 5 files, always append:
 |---|---|
 | Creating a new Atlas cluster from scratch | `atlas-terraform-getting-started` skill |
 | AWS PrivateLink, KMS, or S3 integration | `atlas-terraform-aws-harden` skill |
-| GCP Private Service Connect or Cloud KMS | `atlas-terraform-gcp-harden` skill (coming soon) |
+| GCP Private Service Connect or Cloud KMS | `atlas-terraform-gcp-harden` skill |
 | Atlas Search / Vector Search | Atlas Search Terraform resource docs |
 | Importing existing Terraform state | `terraform import` + provider resource docs |

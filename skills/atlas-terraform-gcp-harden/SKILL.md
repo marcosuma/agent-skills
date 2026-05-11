@@ -252,9 +252,18 @@ provider "google" {
 }
 ```
 
-**If `NETWORKING = create`, add networking resources:**
-
 ```hcl
+provider "mongodbatlas" {
+  client_id     = var.atlas_client_id
+  client_secret = var.atlas_client_secret
+}
+
+provider "google" {
+  project = var.gcp_project_id
+  region  = var.gcp_region
+}
+
+# --- NETWORKING = create only: include google_compute_network + google_compute_subnetwork resources ---
 resource "google_compute_network" "atlas" {
   name                    = "atlas-harden-network"
   auto_create_subnetworks = false
@@ -266,11 +275,8 @@ resource "google_compute_subnetwork" "atlas" {
   region        = var.gcp_region
   network       = google_compute_network.atlas.id
 }
-```
+# --- end NETWORKING = create block ---
 
-**Always include the module:**
-
-```hcl
 module "atlas_gcp" {
   source  = "terraform-mongodbatlas-modules/atlas-gcp/mongodbatlas"
   version = "~> 0.1"
@@ -285,41 +291,27 @@ module "atlas_gcp" {
   privatelink_endpoints = [
     {
       region     = var.atlas_region
-      # NETWORKING = create: use google_compute_subnetwork.atlas.self_link instead
-      subnetwork = var.subnetwork_self_link
+      subnetwork = SUBNETWORK_PLACEHOLDER
     }
   ]
 
-  # KMS = byo: use the block below
-  # KMS = create: replace with: { enabled = true, create_kms_key = { enabled = true } }
-  encryption = {
-    enabled                 = true
-    key_version_resource_id = var.kms_key_version_resource_id
-  }
-
-  # GCS = byo: use the block below
-  # GCS = create: replace with: { enabled = true, create_bucket = { enabled = true } }
-  backup_export = {
-    enabled     = true
-    bucket_name = var.gcs_bucket_name
-  }
+  encryption    = KMS_PLACEHOLDER
+  backup_export = GCS_PLACEHOLDER
 }
 ```
 
-**Combination rules:**
+⚠️ **Combination rules:** Replace each placeholder based on user answers.
 
-| Choice | `NETWORKING = byo` | `NETWORKING = create` |
+| Choice | Placeholder | Substitute with |
 |---|---|---|
-| `subnetwork` | `var.subnetwork_self_link` | `google_compute_subnetwork.atlas.self_link` |
-| google_compute_network + subnetwork resources | remove | keep |
-
-| Choice | `KMS = byo` | `KMS = create` |
-|---|---|---|
-| `encryption` block | `{ enabled = true, key_version_resource_id = var.kms_key_version_resource_id }` | `{ enabled = true, create_kms_key = { enabled = true } }` |
-
-| Choice | `GCS = byo` | `GCS = create` |
-|---|---|---|
-| `backup_export` block | `{ enabled = true, bucket_name = var.gcs_bucket_name }` | `{ enabled = true, create_bucket = { enabled = true } }` |
+| NETWORKING = byo | `SUBNETWORK_PLACEHOLDER` | `var.subnetwork_self_link` |
+| NETWORKING = create | `SUBNETWORK_PLACEHOLDER` | `google_compute_subnetwork.atlas.self_link` |
+| NETWORKING = create | google_compute_network + google_compute_subnetwork resources | **keep** |
+| NETWORKING = byo | google_compute_network + google_compute_subnetwork resources | **remove** |
+| KMS = byo | `KMS_PLACEHOLDER` | `{ enabled = true, key_version_resource_id = var.kms_key_version_resource_id }` |
+| KMS = create | `KMS_PLACEHOLDER` | `{ enabled = true, create_kms_key = { enabled = true } }` |
+| GCS = byo | `GCS_PLACEHOLDER` | `{ enabled = true, bucket_name = var.gcs_bucket_name }` |
+| GCS = create | `GCS_PLACEHOLDER` | `{ enabled = true, create_bucket = { enabled = true } }` |
 
 ---
 
@@ -385,13 +377,13 @@ gcp_region   = "USER_GCP_REGION"    # e.g. us-central1
 # GCP
 gcp_project_id = "USER_GCP_PROJECT_ID"
 
-# --- Networking: keep only the block matching your Q5 answer ---
+# --- Networking: keep only one block, delete the other ---
 
 # BYO path: existing subnetwork self-link
 subnetwork_self_link = "projects/USER_GCP_PROJECT_ID/regions/USER_GCP_REGION/subnetworks/SUBNET_NAME"
 
-# Create path: remove subnetwork_self_link above and uncomment
-# subnet_cidr = "10.0.0.0/24"
+# Create path: delete subnetwork_self_link above and keep this
+subnet_cidr = "10.0.0.0/24"
 
 # --- KMS Encryption: keep only the block matching your Q6 answer ---
 
