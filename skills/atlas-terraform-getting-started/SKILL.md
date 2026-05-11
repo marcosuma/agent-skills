@@ -388,14 +388,29 @@ After presenting all 5 files, always append this section verbatim:
 4. Apply:
    terraform apply
 
+## Further Customization
+
+The generated config covers the standard getting-started path. Common variables to add directly to the `module "cluster"` block in `main.tf`:
+
+| What you want | Variable to add |
+|---|---|
+| Pin MongoDB version | `mongo_db_major_version = "8.0"` |
+| Custom autoscaling ceiling | `auto_scaling = { compute_max_instance_size = "M60", ... }` |
+| Advanced cluster settings | `advanced_configuration = { ... }` — see module docs for all fields |
+| Tag resources | `tags = { Environment = "prod", Team = "platform" }` |
+| Continuous backup (point-in-time) | `pit_enabled = true` (requires backup_enabled = true) |
+| Multiple regions / multi-cloud | Add more objects to the `regions` list with different `provider_name` values |
+
+Full variable reference: https://registry.terraform.io/modules/terraform-mongodbatlas-modules/cluster/mongodbatlas/latest?tab=inputs
+
 ## Useful Links
 
-- Atlas Provider docs:    https://registry.terraform.io/providers/mongodb/mongodbatlas/latest/docs
+- Atlas Provider docs:      https://registry.terraform.io/providers/mongodb/mongodbatlas/latest/docs
 - All Landing Zone Modules: https://registry.terraform.io/namespaces/terraform-mongodbatlas-modules
 - Cluster module:           https://registry.terraform.io/modules/terraform-mongodbatlas-modules/cluster/mongodbatlas/latest
 - Project module:           https://registry.terraform.io/modules/terraform-mongodbatlas-modules/project/mongodbatlas/latest
-- Atlas regions:          https://www.mongodb.com/docs/atlas/cloud-providers-regions/
-- Service Account setup:  https://www.mongodb.com/docs/atlas/configure-api-access/
+- Atlas regions:            https://www.mongodb.com/docs/atlas/cloud-providers-regions/
+- Service Account setup:    https://www.mongodb.com/docs/atlas/configure-api-access/
 ```
 
 ---
