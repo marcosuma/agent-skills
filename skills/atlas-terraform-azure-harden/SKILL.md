@@ -235,8 +235,6 @@ variable "backup_container_name" {
 
 ### File 3: `main.tf`
 
-**Always include:**
-
 ```hcl
 provider "mongodbatlas" {
   client_id     = var.atlas_client_id
@@ -249,11 +247,8 @@ provider "azurerm" {
 }
 
 provider "azuread" {}
-```
 
-**If `NETWORKING = create`, add networking resources:**
-
-```hcl
+# --- NETWORKING = create only: include azurerm_virtual_network + azurerm_subnet resources ---
 resource "azurerm_virtual_network" "atlas" {
   name                = "atlas-harden-vnet"
   location            = var.azure_location
@@ -267,11 +262,8 @@ resource "azurerm_subnet" "atlas" {
   virtual_network_name = azurerm_virtual_network.atlas.name
   address_prefixes     = [var.subnet_prefix]
 }
-```
+# --- end NETWORKING = create block ---
 
-**Always include the module:**
-
-```hcl
 module "atlas_azure" {
   source  = "terraform-mongodbatlas-modules/atlas-azure/mongodbatlas"
   version = "~> 0.3"
@@ -286,45 +278,29 @@ module "atlas_azure" {
   privatelink_endpoints = [
     {
       region    = var.atlas_region
-      # NETWORKING = create: use azurerm_subnet.atlas.id instead
-      subnet_id = var.subnet_id
+      subnet_id = SUBNET_ID_PLACEHOLDER
     }
   ]
 
-  # KMS = byo: use the block below
-  # KMS = create: replace with: { enabled = true, create_key_vault = { enabled = true, name = var.key_vault_name, resource_group_name = var.resource_group_name, azure_location = var.azure_location } }
-  encryption = {
-    enabled        = true
-    key_vault_id   = var.key_vault_id
-    key_identifier = var.key_identifier
-  }
-
-  # BLOB = byo: use the block below
-  # BLOB = create: replace with: { enabled = true, container_name = var.backup_container_name, create_storage_account = { enabled = true, name = var.storage_account_name, resource_group_name = var.resource_group_name, azure_location = var.azure_location } }
-  backup_export = {
-    enabled            = true
-    container_name     = var.backup_container_name
-    storage_account_id = var.storage_account_id
-  }
+  encryption    = KMS_PLACEHOLDER
+  backup_export = BLOB_PLACEHOLDER
 }
 ```
 
 > **Note on `atlas_azure_app_id`:** The default value `9f2deb0d-be22-4524-a403-df531868bac0` is MongoDB's registered Azure AD application ID — do not set it manually unless your organization uses a custom registration.
 
-**Combination rules:**
+⚠️ **Combination rules:** Replace each placeholder based on user answers.
 
-| Variable | `NETWORKING = byo` | `NETWORKING = create` |
+| Choice | Placeholder | Substitute with |
 |---|---|---|
-| `subnet_id` in privatelink_endpoints | `var.subnet_id` | `azurerm_subnet.atlas.id` |
-| azurerm_virtual_network + azurerm_subnet resources | remove | keep |
-
-| Variable | `KMS = byo` | `KMS = create` |
-|---|---|---|
-| `encryption` block | `{ enabled = true, key_vault_id = var.key_vault_id, key_identifier = var.key_identifier }` | `{ enabled = true, create_key_vault = { enabled = true, name = var.key_vault_name, resource_group_name = var.resource_group_name, azure_location = var.azure_location } }` |
-
-| Variable | `BLOB = byo` | `BLOB = create` |
-|---|---|---|
-| `backup_export` block | `{ enabled = true, container_name = var.backup_container_name, storage_account_id = var.storage_account_id }` | `{ enabled = true, container_name = var.backup_container_name, create_storage_account = { enabled = true, name = var.storage_account_name, resource_group_name = var.resource_group_name, azure_location = var.azure_location } }` |
+| NETWORKING = byo | `SUBNET_ID_PLACEHOLDER` | `var.subnet_id` |
+| NETWORKING = create | `SUBNET_ID_PLACEHOLDER` | `azurerm_subnet.atlas.id` |
+| NETWORKING = create | azurerm_virtual_network + azurerm_subnet resources | **keep** |
+| NETWORKING = byo | azurerm_virtual_network + azurerm_subnet resources | **remove** |
+| KMS = byo | `KMS_PLACEHOLDER` | `{ enabled = true, key_vault_id = var.key_vault_id, key_identifier = var.key_identifier }` |
+| KMS = create | `KMS_PLACEHOLDER` | `{ enabled = true, create_key_vault = { enabled = true, name = var.key_vault_name, resource_group_name = var.resource_group_name, azure_location = var.azure_location } }` |
+| BLOB = byo | `BLOB_PLACEHOLDER` | `{ enabled = true, container_name = var.backup_container_name, storage_account_id = var.storage_account_id }` |
+| BLOB = create | `BLOB_PLACEHOLDER` | `{ enabled = true, container_name = var.backup_container_name, create_storage_account = { enabled = true, name = var.storage_account_name, resource_group_name = var.resource_group_name, azure_location = var.azure_location } }` |
 
 ---
 
@@ -400,22 +376,22 @@ subnet_id = "/subscriptions/SUB/resourceGroups/RG/providers/Microsoft.Network/vi
 # vnet_address_space = "10.0.0.0/16"
 # subnet_prefix      = "10.0.1.0/24"
 
-# --- Key Vault: keep only the block matching your Q6 answer ---
+# --- Key Vault: keep only one block, delete the other ---
 
 # BYO path: existing Key Vault
-# key_vault_id   = "/subscriptions/SUB/resourceGroups/RG/providers/Microsoft.KeyVault/vaults/VAULT"
-# key_identifier = "https://<vault>.vault.azure.net/keys/<key>/<version>"
+key_vault_id   = "/subscriptions/SUB/resourceGroups/RG/providers/Microsoft.KeyVault/vaults/VAULT"
+key_identifier = "https://<vault>.vault.azure.net/keys/<key>/<version>"
 
-# Create path: remove key_vault_id / key_identifier above
-key_vault_name = "USER_KEY_VAULT_NAME"
+# Create path: delete key_vault_id / key_identifier above and keep this
+# key_vault_name = "USER_KEY_VAULT_NAME"
 
-# --- Storage Account: keep only the block matching your Q7 answer ---
+# --- Storage Account: keep only one block, delete the other ---
 
 # BYO path: existing storage account
-# storage_account_id = "/subscriptions/SUB/resourceGroups/RG/providers/Microsoft.Storage/storageAccounts/ACCT"
+storage_account_id = "/subscriptions/SUB/resourceGroups/RG/providers/Microsoft.Storage/storageAccounts/ACCT"
 
-# Create path: remove storage_account_id above
-storage_account_name  = "USER_STORAGE_ACCOUNT_NAME"
+# Create path: delete storage_account_id above and keep this
+# storage_account_name = "USER_STORAGE_ACCOUNT_NAME"
 
 # Always required
 backup_container_name = "USER_CONTAINER_NAME"
