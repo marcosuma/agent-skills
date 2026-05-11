@@ -101,7 +101,7 @@ Store as `USER_ATLAS_REGION` and `USER_AWS_REGION`.
 **Option B — Create New:**
 - Ask: "What CIDR block for the new VPC? (e.g. 10.0.0.0/16)"
 - Ask: "Which availability zones should subnets span? (comma-separated, e.g. us-east-1a,us-east-1b)"
-- Store as `USER_VPC_CIDR` and `USER_AZS`. Set `NETWORKING = create`.
+- Store as `USER_VPC_CIDR` and `USER_AZ_LIST`. Set `NETWORKING = create`.
 
 ### Q5 — KMS Encryption
 
@@ -122,6 +122,8 @@ Store as `USER_ATLAS_REGION` and `USER_AWS_REGION`.
 ## Step 3: Generate the 5 Files
 
 Substitute all USER_* placeholders with collected answers before rendering.
+
+For `terraform.tfvars.example`, activate only the networking block matching the user's Q4 choice and delete the other networking block. Do the same for the KMS and S3 blocks — keep only the block that matches the user's Q5 and Q6 choices and delete the other.
 
 ---
 
@@ -216,13 +218,11 @@ Same as File 2a but replace the `subnet_ids` variable with:
 variable "vpc_cidr" {
   description = "CIDR block for the new VPC (e.g. 10.0.0.0/16)."
   type        = string
-  default     = "USER_VPC_CIDR"
 }
 
 variable "availability_zones" {
   description = "AWS availability zones for subnets."
   type        = list(string)
-  default     = ["USER_AZ_1", "USER_AZ_2"]
 }
 ```
 
@@ -276,6 +276,7 @@ module "atlas_aws" {
     }
   ]
 
+  # Creates an IAM role for Atlas Cloud Provider Access (KMS + S3 permissions) with module defaults.
   cloud_provider_access = {}
 
   encryption  = KMS_PLACEHOLDER
@@ -289,6 +290,7 @@ module "atlas_aws" {
 |---|---|---|
 | NETWORKING = byo | `SUBNET_IDS_PLACEHOLDER` | `var.subnet_ids` |
 | NETWORKING = create | `SUBNET_IDS_PLACEHOLDER` | `aws_subnet.atlas[*].id` |
+| NETWORKING = create | aws_vpc + aws_subnet blocks | **keep** |
 | NETWORKING = byo | aws_vpc + aws_subnet blocks | **remove** |
 | KMS = byo | `KMS_PLACEHOLDER` | `{ enabled = true, kms_key_arn = var.kms_key_arn }` |
 | KMS = create | `KMS_PLACEHOLDER` | `{ enabled = true, create_kms_key = { enabled = true } }` |
@@ -363,7 +365,7 @@ subnet_ids = ["subnet-xxxxxxxx", "subnet-yyyyyyyy"]
 
 # Create path: uncomment and remove subnet_ids above
 # vpc_cidr           = "10.0.0.0/16"
-# availability_zones = ["USER_AZ_1", "USER_AZ_2"]
+# availability_zones = ["us-east-1a", "us-east-1b"]
 
 # --- KMS Encryption (choose one path) ---
 
@@ -476,8 +478,8 @@ After presenting all 5 files, always append:
 | Request | Resource |
 |---|---|
 | Creating a new Atlas cluster from scratch | `atlas-terraform-getting-started` skill |
-| Azure PrivateLink, Key Vault, or Blob Storage integration | `atlas-terraform-azure-harden` skill |
-| GCP Private Service Connect or Cloud KMS integration | `atlas-terraform-gcp-harden` skill |
+| Azure PrivateLink, Key Vault, or Blob Storage integration | `atlas-terraform-azure-harden` skill (coming soon) |
+| GCP Private Service Connect or Cloud KMS integration | `atlas-terraform-gcp-harden` skill (coming soon) |
 | Atlas Search / Vector Search index management | Atlas Search Terraform resource docs |
 | Importing existing Terraform state | `terraform import` + provider resource docs |
 | General Terraform errors unrelated to Atlas | HashiCorp Terraform docs |
