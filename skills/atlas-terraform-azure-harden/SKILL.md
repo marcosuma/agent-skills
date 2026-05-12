@@ -53,8 +53,8 @@ Strip the leading `v`. Constraint: `~> 2.0`.
 ### 1b: atlas-azure module
 
 Try in order:
-1. `WebSearch`: query `terraform-mongodbatlas-modules/atlas-azure/mongodbatlas terraform registry latest version`
-2. `Bash`: `gh api repos/terraform-mongodbatlas-modules/terraform-mongodbatlas-atlas-azure/releases/latest --jq '.tag_name'`
+1. `Bash`: `gh api repos/terraform-mongodbatlas-modules/terraform-mongodbatlas-atlas-azure/releases/latest --jq '.tag_name'`
+2. `WebSearch` (fallback if gh fails): query `terraform-mongodbatlas-modules/atlas-azure/mongodbatlas terraform registry latest version`
 
 Constraint: `~> 0.3`. Public Preview module.
 
@@ -64,6 +64,16 @@ Constraint: `~> 0.3`. Public Preview module.
 - `hashicorp/azuread` requires `>= 2.53`. Constraint: `~> 2.0`.
 
 No version resolution needed for these.
+
+### 1d: Inspect atlas-azure module interface
+
+Fetch the module's actual variable definitions from GitHub before generating any HCL:
+
+```bash
+gh api repos/terraform-mongodbatlas-modules/terraform-mongodbatlas-atlas-azure/contents/variables.tf --jq '.content' | base64 -d
+```
+
+Read the output and record every declared variable name. In Step 3 (File 3: main.tf), pass **only** arguments whose names appear in this file. Do not use any argument name absent from the fetched `variables.tf`. If the command fails, proceed with the template in Step 3 but flag to the user that the module interface could not be verified and they should check the [module inputs](https://registry.terraform.io/modules/terraform-mongodbatlas-modules/atlas-azure/mongodbatlas/latest?tab=inputs) manually.
 
 ---
 
@@ -234,6 +244,8 @@ variable "backup_container_name" {
 ---
 
 ### File 3: `main.tf`
+
+⚠️ **Use the interface from Step 1d.** Generate the `module "atlas_azure"` block using **only** argument names that appeared in the fetched `variables.tf`. Verify every argument name against the fetched interface and omit any that are not declared there. Do not assume argument names: if `cluster_name` or `region` are absent from the fetched variables, do not include them.
 
 ```hcl
 provider "mongodbatlas" {
