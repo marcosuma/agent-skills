@@ -46,8 +46,8 @@ Fetch versions before generating HCL. Never hardcode them.
 
 Try in order until one succeeds:
 1. `mcp__plugin_terraform_terraform__get_latest_provider_version`: namespace `mongodb`, type `mongodbatlas`
-2. `WebSearch`: query `mongodb/mongodbatlas terraform provider latest release site:github.com`
-3. `Bash`: `gh api repos/mongodb/terraform-provider-mongodbatlas/releases/latest --jq '.tag_name'`
+2. `Bash`: `gh api repos/mongodb/terraform-provider-mongodbatlas/releases/latest --jq '.tag_name'`
+3. `WebSearch`: query `mongodb/mongodbatlas terraform provider latest release site:github.com`
 
 Strip the leading `v`. Constraint: `~> 2.0`.
 
