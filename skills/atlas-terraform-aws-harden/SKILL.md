@@ -94,11 +94,9 @@ Store as `USER_CLUSTER_NAME`.
 
 ### Q3 — Region
 
-> "What region is your Atlas cluster in? Please provide both:
-> - Atlas format (e.g. US_EAST_1, EU_WEST_1, AP_SOUTHEAST_2)
-> - AWS provider format (e.g. us-east-1, eu-west-1, ap-southeast-2)"
+> "What AWS region is your Atlas cluster in? (e.g. `eu-west-1`, `us-east-1`, `ap-southeast-2`)"
 
-Store as `USER_ATLAS_REGION` and `USER_AWS_REGION`.
+Store as `USER_AWS_REGION`. The `atlas-aws` module accepts both AWS format (`eu-west-1`) and Atlas format (`EU_WEST_1`) — use AWS format throughout.
 
 ### Q4 — AWS Networking
 
@@ -176,16 +174,6 @@ variable "atlas_client_secret" {
 
 variable "project_id" {
   description = "Atlas Project ID. Atlas UI → Project Settings → Project ID."
-  type        = string
-}
-
-variable "cluster_name" {
-  description = "Name of the existing Atlas cluster to harden."
-  type        = string
-}
-
-variable "atlas_region" {
-  description = "Atlas region name (e.g. US_EAST_1)."
   type        = string
 }
 
@@ -277,21 +265,22 @@ module "atlas_aws" {
   source  = "terraform-mongodbatlas-modules/atlas-aws/mongodbatlas"
   version = "~> 0.3"
 
-  project_id   = var.project_id
-  cluster_name = var.cluster_name
-  region       = var.atlas_region
+  project_id = var.project_id
 
   privatelink_endpoints = [
     {
-      region     = var.atlas_region
+      region     = var.aws_region
       subnet_ids = SUBNET_IDS_PLACEHOLDER
+      security_group = {
+        inbound_cidr_blocks = CIDR_PLACEHOLDER
+      }
     }
   ]
 
   # Creates an IAM role for Atlas Cloud Provider Access (KMS + S3 permissions) with module defaults.
   cloud_provider_access = {}
 
-  encryption  = KMS_PLACEHOLDER
+  encryption    = KMS_PLACEHOLDER
   backup_export = S3_PLACEHOLDER
 }
 ```
@@ -302,6 +291,8 @@ module "atlas_aws" {
 |---|---|---|
 | NETWORKING = byo | `SUBNET_IDS_PLACEHOLDER` | `var.subnet_ids` |
 | NETWORKING = create | `SUBNET_IDS_PLACEHOLDER` | `aws_subnet.atlas[*].id` |
+| NETWORKING = create | `CIDR_PLACEHOLDER` | `[var.vpc_cidr]` |
+| NETWORKING = byo | `CIDR_PLACEHOLDER` | `[]` |
 | NETWORKING = create | aws_vpc + aws_subnet blocks | **keep** |
 | NETWORKING = byo | aws_vpc + aws_subnet blocks | **remove** |
 | KMS = byo | `KMS_PLACEHOLDER` | `{ enabled = true, kms_key_arn = var.kms_key_arn }` |
@@ -362,13 +353,11 @@ output "subnet_ids" {
 atlas_client_id     = "<replace-me>"
 atlas_client_secret = "<replace-me>"
 
-# Atlas project and cluster
-project_id   = "USER_PROJECT_ID"
-cluster_name = "USER_CLUSTER_NAME"
+# Atlas project
+project_id = "USER_PROJECT_ID"
 
-# Regions
-atlas_region = "USER_ATLAS_REGION"   # e.g. US_EAST_1
-aws_region   = "USER_AWS_REGION"     # e.g. us-east-1
+# AWS region
+aws_region = "USER_AWS_REGION"   # e.g. eu-west-1
 
 # --- Networking (choose one path) ---
 
@@ -394,7 +383,7 @@ s3_bucket_name = "<replace-me>"
 # Create path: remove s3_bucket_name above; module creates the bucket automatically
 ```
 
-Replace all `USER_*` with actual values from Q1–Q6. If MCP is connected, pre-populate `project_id` and `cluster_name`.
+Replace all `USER_*` with actual values from Q1–Q6. If MCP is connected, pre-populate `project_id`.
 
 ---
 
@@ -415,6 +404,27 @@ Before presenting the files to the user, validate the HCL.
    ```bash
    terraform -chdir=/tmp/atlas-tf-validate-tmp init -backend=false -no-color
    ```
+
+3b. Apply Terraform < 1.12 compatibility patches for `atlas-aws` v0.3.x.
+
+   Check the running version:
+   ```bash
+   terraform version -no-color | head -1
+   ```
+
+   If the version is **below 1.12**, apply these two patches using the Edit tool before validating. They add `try()` guards around two expressions that Terraform 1.9–1.11 evaluates eagerly even when the surrounding `&&`/`||` would short-circuit on 1.12+:
+
+   **Patch A** — `/tmp/atlas-tf-validate-tmp/.terraform/modules/atlas_aws/locals.tf`:
+   - old: `if ep.service_region != null && lower(replace(ep.service_region, "_", "-")) == k`
+   - new: `if ep.service_region != null && try(lower(replace(ep.service_region, "_", "-")), "") == k`
+
+   **Patch B** — `/tmp/atlas-tf-validate-tmp/.terraform/modules/atlas_aws/modules/cloud_provider_access/variables.tf`:
+   - old: `condition     = var.iam_role_name == null || length(var.iam_role_name) <= 64`
+   - new: `condition     = var.iam_role_name == null || try(length(var.iam_role_name), 0) <= 64`
+
+   Apply the same two patches to the user's actual project `.terraform/modules/` directory as well (path mirrors the temp path but rooted at the user's project directory).
+
+   ⚠️ These patches are lost if `terraform init -upgrade` is run or `.terraform/` is deleted — re-apply if needed. The bugs are fixed natively in Terraform ≥ 1.12.
 
 4. Validate:
 
